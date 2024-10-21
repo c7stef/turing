@@ -8,5 +8,5 @@ project(tms
 add_executable(tms main.cpp turing.cpp)
 
 set_target_properties(tms PROPERTIES
-    CXX_STANDARD 26
+    CXX_STANDARD 23
     CXX_EXTENSIONS OFF)
