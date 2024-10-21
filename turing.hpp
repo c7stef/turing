@@ -32,8 +32,8 @@ public:
     using transition_entry = std::pair<tape_state, tape_reaction>;
     using transition_table = std::unordered_map<tape_state, tape_reaction, tape_state_hash>;
 
-    using ref = std::reference_wrapper<const turing_machine>;
-    using list = std::list<ref>;
+    // using ref = std::reference_wrapper<const turing_machine>;
+    using list = std::list<turing_machine>;
 
     turing_machine()
     {
@@ -69,6 +69,9 @@ public:
         this->transitions.merge(transitions | std::ranges::to<transition_table>());
     }
 
+    auto begin() const -> transition_table::const_iterator { return transitions.begin(); }
+    auto end() const -> transition_table::const_iterator { return transitions.end(); }
+
     auto redirect_state(std::string_view state_from, std::string_view state_to, const std::set<char>& alphabet)
         -> void;
     auto set_initial_state(std::string_view name) -> void;
@@ -102,7 +105,7 @@ public:
         -> turing_machine
     {
         // Get first Turing machine (prefixed)
-        auto initial = (*tms.begin()).get().prefixed();
+        auto initial = (*tms.begin()).prefixed();
         
         auto result = std::ranges::fold_left(tms | std::views::drop(1), initial,
             [&](const turing_machine& first, const turing_machine& second)

@@ -131,17 +131,18 @@ std::ostream& operator<<(std::ostream& out, const turing_machine& tm)
     out << "init: " << tm.initial << std::endl
         << "accept: " << tm.accept << std::endl << std::endl;
 
-    for (auto const& [key, val] : tm.transitions)
-        out << key.first << ',' << key.second << std::endl
-            << val.first.first << ',' << val.first.second << ',' << direction_to_specifier.at(val.second) << std::endl
-            << std::endl;
+    for (auto const& [key, val] : tm)
+        out << std::format("{},{}", key.first, key.second) << std::endl
+            << std::format("{},{},{}", val.first.first, val.first.second,
+                direction_to_specifier.at(val.second))
+            << std::endl << std::endl;
 
     return out;
 }
 
 auto turing_machine::prefixed() const -> turing_machine
 {
-    auto prefix = title;
+    auto prefix = std::format("[{}]", title);
     turing_machine::transition_table result_transitions{};
 
     for (const auto& [state, reaction] : transitions) {

@@ -1,3 +1,4 @@
+#include <algorithm>
 #include <initializer_list>
 #include <iostream>
 #include <ranges>
@@ -57,16 +58,19 @@ namespace component {
     auto _move(int amount, std::string_view name, dir direction)
         -> turing_machine
     {
-        auto transition_builder = [direction](auto symbol)
+        auto transition_builder = [direction](const auto symbol)
         {
-            return [direction, symbol](auto idx) -> turing_machine::transition_entry
+            return [direction, symbol](const auto idx) -> turing_machine::transition_entry
             {
-                return {{std::to_string(idx), symbol}, {{std::to_string(idx+1), symbol}, direction}};
+                return {
+                     {std::to_string(idx), symbol},
+                    {{std::to_string(idx+1), symbol}, direction}
+                };
             };
         };
 
         turing_machine tm {};
-        tm.set_initial_state("0"sv);
+        tm.set_initial_state("0");
 
         for (const auto symbol : alphabet) {
             tm.add_transitions(
@@ -97,19 +101,142 @@ namespace component {
         return _move(amount, name, dir::left);
     }
 
-    auto row_check(std::string_view name)
+    auto find(char needle, std::string_view name, dir direction)
         -> turing_machine
     {
-        turing_machine tm {
-            {{"qStart", '_'}, {{"qAccept", '0'}, dir::right}}
-        };
+        turing_machine tm {};
+        tm.set_initial_state("search");
 
-        // tm.set_title("Row"s + std::to_string(row));
+        for (const auto symbol : alphabet) {
+            auto is_needle{symbol == needle};
+
+            tm.add_transition(
+                {"search", symbol},
+                {{is_needle ? tm.accept_state() : "search", symbol},
+                    is_needle ? dir::hold : direction}
+            );
+        }
+        
         tm.set_title(name);
         return tm;
     }
 
-    auto column_check(std::string_view name)
+    auto find_right(char needle, std::string_view name)
+        -> turing_machine
+    {
+        return find(needle, name, dir::right);
+    }
+
+    auto find_left(char needle, std::string_view name)
+        -> turing_machine
+    {
+        return find(needle, name, dir::left);
+    }
+
+    enum class repeater {
+        do_until,
+        do_while
+    };
+
+    auto repeat(const turing_machine& tm, repeater type, char symbol, std::string_view name)
+        -> turing_machine
+    {
+        // Start with prefixed renamed version of tm
+        auto repeater{turing_machine::multiconcat(
+            turing_machine::list{tm},
+            alphabet, name)
+        };
+
+        auto checker_state{"check"};
+        auto break_state{"break"};
+
+        // Redirect accept -> check
+        repeater.redirect_state(repeater.accept_state(), checker_state, alphabet);
+
+        // Redirect check -> initial [do_until] or break out [do_while]
+        repeater.redirect_state(checker_state,
+            type == repeater::do_until ? repeater.initial_state()
+                : break_state,
+            alphabet
+        );
+
+        // ...but (check, needle) -> break out [do_until] or continue [do_while]
+        repeater.add_transition({checker_state, symbol}, {{
+            type == repeater::do_until ? break_state
+                : repeater.initial_state(),
+            symbol
+        }, dir::hold});
+        repeater.set_accept_state(break_state);
+
+        return repeater;
+    }
+
+    auto check_row(std::string_view name)
+        -> turing_machine
+    {
+        auto state_builder = [](const auto& perm, const auto first_n)
+            -> std::string
+        {
+            return perm | std::views::take(first_n) | std::ranges::to<std::string>();
+        };
+
+        turing_machine tm{};
+        tm.set_initial_state("check");
+
+        std::vector<char> expect{'1', '2', '3', '4'};
+
+        for (const auto symbol : expect)
+            tm.add_transition({tm.initial_state(), symbol}, {{std::string{symbol}, symbol}, dir::right});
+
+        do {
+            tm.add_transitions(turing_machine::transition_table{
+                {{state_builder(expect, 1), expect[1]}, {{state_builder(expect, 2), expect[1]}, dir::right}},
+                {{state_builder(expect, 2), expect[2]}, {{state_builder(expect, 3), expect[2]}, dir::right}},
+                {{state_builder(expect, 3), expect[3]}, {{tm.accept_state(), expect[3]}, dir::hold}},
+            });
+        } while (std::next_permutation(expect.begin(), expect.end()));
+
+        tm.set_title(name);
+        return tm;
+    }
+
+    auto consume_right(char symbol, std::string_view name)
+        -> turing_machine
+    {
+        turing_machine tm{};
+        tm.set_initial_state(std::string{symbol});
+        tm.add_transition({tm.initial_state(), symbol}, {{tm.accept_state(), symbol}, dir::right});
+        tm.set_title(name);
+        return tm;
+    }
+
+    auto check_rows(std::string_view name)
+        -> turing_machine
+    {
+        turing_machine tm{turing_machine::multiconcat(
+            turing_machine::list{
+                find_right(':', "move_to_row1:"),
+
+                repeat(turing_machine::multiconcat(
+                    turing_machine::list{
+                        consume_right(':', "pass:"),
+                        check_row("check_row"),
+                        move_right(5, "move_to_next")        
+                    },
+                    alphabet, "loop_body"
+                ), repeater::do_while, ':', "row_loop"),
+
+                find_left('_', "move_back"),
+                consume_right('_', "move_to_start")
+            },
+            alphabet, "check_rows"
+        )};
+
+        tm.set_title(name);
+        return tm;
+    }
+
+    auto check_cols(std::string_view name)
         -> turing_machine
     {
         return {};
@@ -118,16 +245,20 @@ namespace component {
 
 
 int main(int argc, char* argv[]) {
-    if (argc != 2)
-        terminate_message("Usage: ./tms <input>");
+    if (argc > 2)
+        terminate_message("Usage: ./tms [input]");
 
-    auto first_mover{component::move_right(3, "Mover")};
-    auto second_mover{component::move_left(5, "AnotherMover")};
+    auto rows{component::check_rows("check_rows")};
 
     auto concat{turing_machine::multiconcat(
-        turing_machine::list{first_mover, second_mover},
-        component::alphabet, "UltraMover"
+        turing_machine::list{rows},
+        component::alphabet, "solver"
     )};
 
-    run_input(concat, argv[1]);
+    concat.redirect_state(concat.accept_state(), "Y", component::alphabet);
+
+    std::cout << concat;
+
+    if (argc == 2)
+        run_input(concat, argv[1]);
 }
