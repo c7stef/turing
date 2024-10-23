@@ -1,9 +1,12 @@
 #include <algorithm>
+#include <concepts>
 #include <initializer_list>
 #include <iostream>
 #include <ranges>
 #include <string>
 #include <string_view>
+#include <unordered_map>
+#include <vector>
 #include "turing.hpp"
 
 using namespace std::literals;
@@ -171,30 +174,28 @@ namespace component {
         return repeater;
     }
 
-    auto check_row(std::string_view name)
+    auto first_chars = [](const auto& perm, const auto n)
+        -> std::string
+    {
+        return perm | std::views::take(n) | std::ranges::to<std::string>();
+    };
+
+    template<typename R>
+    requires std::ranges::range<R>
+        && std::convertible_to<std::ranges::range_value_t<R>, std::vector<char>>
+    auto row_expect(R sequences, std::string_view name)
         -> turing_machine
     {
-        auto state_builder = [](const auto& perm, const auto first_n)
-            -> std::string
-        {
-            return perm | std::views::take(first_n) | std::ranges::to<std::string>();
-        };
-
         turing_machine tm{};
-        tm.set_initial_state("check");
+        tm.set_initial_state("start");
 
-        std::vector<char> expect{'1', '2', '3', '4'};
-
-        for (const auto symbol : expect)
-            tm.add_transition({tm.initial_state(), symbol}, {{std::string{symbol}, symbol}, dir::right});
-
-        do {
+        for (const auto& seq : sequences)
             tm.add_transitions(turing_machine::transition_table{
-                {{state_builder(expect, 1), expect[1]}, {{state_builder(expect, 2), expect[1]}, dir::right}},
-                {{state_builder(expect, 2), expect[2]}, {{state_builder(expect, 3), expect[2]}, dir::right}},
-                {{state_builder(expect, 3), expect[3]}, {{tm.accept_state(), expect[3]}, dir::hold}},
+                {{tm.initial_state(), seq[0]}, {{first_chars(seq, 1), seq[0]}, dir::right}},
+                {{first_chars(seq, 1), seq[1]}, {{first_chars(seq, 2), seq[1]}, dir::right}},
+                {{first_chars(seq, 2), seq[2]}, {{first_chars(seq, 3), seq[2]}, dir::right}},
+                {{first_chars(seq, 3), seq[3]}, {{tm.accept_state(), seq[3]}, dir::hold}},
             });
-        } while (std::next_permutation(expect.begin(), expect.end()));
 
         tm.set_title(name);
         return tm;
@@ -207,6 +208,20 @@ namespace component {
         tm.set_initial_state(std::string{symbol});
         tm.add_transition({tm.initial_state(), symbol}, {{tm.accept_state(), symbol}, dir::right});
         tm.set_title(name);
+        return tm;
+    }
+
+    auto check_row(std::string_view name)
+        -> turing_machine
+    {
+        std::vector<char> set{'1', '2', '3', '4'};
+        std::vector<std::vector<char>> sequences{};
+        do sequences.push_back(set);
+        while (std::ranges::next_permutation(set).found);
+
+        auto tm{row_expect(sequences, "expecter")};
+        tm.set_title(name);
+
         return tm;
     }
 
@@ -236,10 +251,94 @@ namespace component {
         return tm;
     }
 
+    auto towers_rows(std::string_view name)
+        -> turing_machine
+    {
+
+    }
+
+    auto check_col(std::string_view name)
+        -> turing_machine
+    {
+        auto build_carrier = [](std::string expect)
+        {
+            return move_right(9, "shift").prefix(expect);
+        };
+
+        turing_machine tm{};
+        tm.set_initial_state("check");
+
+        std::vector<char> set{'1', '2', '3', '4'};
+
+        std::unordered_map<std::string, turing_machine> carriers{set
+            | std::views::transform([&](char symbol) {
+                std::string expect{symbol};
+                return std::pair{expect, build_carrier(expect)};
+            })
+            | std::ranges::to<decltype(carriers)>()
+        };
+
+        for (const auto symbol : set)
+            tm.add_transition(
+                {tm.initial_state(), symbol},
+                {{carriers.at(std::string{symbol}).initial_state(), symbol}, dir::hold});
+        
+        do {
+            auto expect_1{first_chars(set, 1)};
+            auto expect_2{first_chars(set, 2)};
+            auto expect_3{first_chars(set, 3)};
+
+            carriers[expect_2] = build_carrier(expect_2);
+            carriers[expect_3] = build_carrier(expect_3);
+            // std::cout << tm.accept_state() << std::endl;
+
+            tm.add_transitions(turing_machine::transition_table{
+                {
+                    {carriers.at(expect_1).accept_state(), set[1]},
+                    {{carriers.at(expect_2).initial_state(), set[1]}, dir::hold}
+                },
+                {
+                    {carriers.at(expect_2).accept_state(), set[2]},
+                    {{carriers.at(expect_3).initial_state(), set[2]}, dir::hold}
+                },
+                {
+                    {carriers.at(expect_3).accept_state(), set[3]},
+                    {{tm.accept_state(), set[3]}, dir::hold}
+                }
+            });
+        } while (std::next_permutation(set.begin(), set.end()));
+
+        auto carriers_tm{turing_machine::multiunion(carriers | std::views::values, "carriers")};
+        tm = turing_machine::multiunion(turing_machine::list{tm, carriers_tm}, "col_check");
+
+        tm.set_title(name);
+        return tm;
+    }
+
     auto check_cols(std::string_view name)
         -> turing_machine
     {
-        return {};
+        turing_machine tm{turing_machine::multiconcat(
+            turing_machine::list{
+                find_right(':', "move_to_col1:"),
+                consume_right(':', "pass:"),
+
+                repeat(turing_machine::multiconcat(
+                    turing_machine::list{
+                        check_col("check_col"),
+                        move_left(26, "move_to_next")        
+                    },
+                    alphabet, "loop_body"
+                ), repeater::do_until, ':', "col_loop"),
+
+                find_left('_', "move_back"),
+                consume_right('_', "move_to_start")
+            },
+            alphabet, "check_cols"
+        )};
+
+        tm.set_title(name);
+        return tm;
     }
 }
 
@@ -248,10 +347,12 @@ int main(int argc, char* argv[]) {
     if (argc > 2)
         terminate_message("Usage: ./tms [input]");
 
-    auto rows{component::check_rows("check_rows")};
-
     auto concat{turing_machine::multiconcat(
-        turing_machine::list{rows},
+        turing_machine::list{
+            // component::check_rows("check_rows"),
+            component::check_cols("check_cols"),
+            // component::towers_rows("towers_rows")
+        },
         component::alphabet, "solver"
     )};
 

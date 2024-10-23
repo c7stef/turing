@@ -124,8 +124,37 @@ public:
         return result;
     }
 
-    auto initial_state() -> std::string { return initial; }
-    auto accept_state() -> std::string { return accept; }
+    template<typename R>
+    requires std::ranges::range<R>
+        && std::convertible_to<std::ranges::range_value_t<R>, turing_machine>
+    static auto multiunion(
+        R tms,
+        std::string_view title
+    )
+        -> turing_machine
+    {
+        auto initial = *tms.begin();
+        
+        auto result = std::ranges::fold_left(tms | std::views::drop(1), initial,
+            [&](const turing_machine& first, const turing_machine& second)
+        {
+            auto result{first};
+            result.add_transitions(second.transitions);
+            return result;
+        });
+
+        result.set_title(title);
+        return result;
+    }
+
+    auto transform_states(std::function<std::string(std::string_view)> callback) const
+        -> turing_machine;
+    
+    auto prefix(std::string str) const
+        -> turing_machine;
+
+    auto initial_state() const -> std::string { return initial; }
+    auto accept_state() const -> std::string { return accept; }
 
 private:
     transition_table transitions{};

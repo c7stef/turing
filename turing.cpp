@@ -140,21 +140,17 @@ std::ostream& operator<<(std::ostream& out, const turing_machine& tm)
     return out;
 }
 
+auto turing_machine::prefix(std::string str) const
+    -> turing_machine
+{
+    return transform_states([&](std::string_view s) {
+        return std::format("[{}]{}", str, s);
+    });
+}
+
 auto turing_machine::prefixed() const -> turing_machine
 {
-    auto prefix = std::format("[{}]", title);
-    turing_machine::transition_table result_transitions{};
-
-    for (const auto& [state, reaction] : transitions) {
-        result_transitions[{prefix + state.first, state.second}]
-            = {{prefix + reaction.first.first, reaction.first.second}, reaction.second};
-    }
-
-    turing_machine result{result_transitions};
-    result.set_initial_state(prefix + initial);
-    result.set_accept_state(prefix + accept);
-
-    return result;
+    return prefix(title);
 }
 
 auto turing_machine::concat(
@@ -166,6 +162,24 @@ auto turing_machine::concat(
     -> turing_machine
 {
     return multiconcat(list{first, second}, alphabet, title);
+}
+
+auto turing_machine::transform_states(std::function<std::string(std::string_view)> callback) const
+    -> turing_machine
+{
+    turing_machine::transition_table result_transitions{};
+
+    for (const auto& [state, reaction] : transitions) {
+        result_transitions[{callback(state.first), state.second}]
+            = {{callback(reaction.first.first), reaction.first.second}, reaction.second};
+    }
+
+    turing_machine result{result_transitions};
+    result.set_initial_state(callback(initial));
+    result.set_accept_state(callback(accept));
+    result.set_title(title);
+
+    return result;
 }
 
 auto turing_machine::step() -> status {
