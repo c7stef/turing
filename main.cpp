@@ -3,6 +3,7 @@
 #include <concepts>
 #include <initializer_list>
 #include <iostream>
+#include <iterator>
 #include <ranges>
 #include <string>
 #include <string_view>
@@ -175,10 +176,19 @@ namespace component {
         return repeater;
     }
 
-    auto first_chars = [](const auto& perm, const auto n)
-        -> std::string
+    auto first_chars = [](const auto& seq, int n)
     {
-        return perm | std::views::take(n) | std::ranges::to<std::string>();
+        return seq | std::views::take(n);
+    };
+
+    auto last_symbol = [](auto seq)
+    {
+        return *(seq | std::views::reverse).begin();
+    };
+
+    auto to_string = [](auto seq)
+    {
+        return seq | std::ranges::to<std::string>();
     };
 
     constexpr auto permutations_sequence()
@@ -194,40 +204,45 @@ namespace component {
     }
 
     template<std::ranges::forward_range R>
-    requires std::convertible_to<std::ranges::range_reference_t<R>, std::vector<char>>
-    auto row_expect(R sequences, std::string_view name)
+    requires std::convertible_to<std::ranges::range_reference_t<R>, char>
+    auto row_expect(R sequence, std::string_view name)
         -> turing_machine
     {
         turing_machine tm{};
         tm.set_initial_state("start");
 
-        for (const auto& seq : sequences) {
-            auto seq_len{seq.size()};
+        auto seq_len{std::ranges::distance(sequence)};
+        auto first{last_symbol(first_chars(sequence, 1))};
+        auto last{last_symbol(sequence)};
 
-            tm.add_transitions(turing_machine::transition_table{
-                // Transition from start to subsequence of 1
-                {
-                    {tm.initial_state(), seq[0]},
-                    {{first_chars(seq, 1), seq[0]}, dir::right}
-                },
+        tm.add_transitions(turing_machine::transition_table{
+            // Transition from start to subsequence of 1
+            {
+                {tm.initial_state(), first},
+                {{to_string(first_chars(sequence, 1)), first}, dir::right}
+            },
 
-                // Transition from complete subsequence to accept
-                {
-                    {first_chars(seq, seq_len-1), seq[seq_len-1]},
-                    {{tm.accept_state(), seq[seq_len-1]}, dir::hold}
-                }
-            });
+            // Transition from complete subsequence to accept
+            {
+                {to_string(first_chars(sequence, seq_len-1)), last},
+                {{tm.accept_state(), last}, dir::hold}
+            }
+        });
 
-            for (const auto n : std::views::iota(0)
-                | std::views::take(seq_len)
-                | std::views::drop(1) | std::views::reverse // Drop first (subsequence of 0)
-                | std::views::drop(1) | std::views::reverse // Drop last (subsequence = sequence)
-            )
-                // Transition from n-subsequence to (n+1)-subsequence
-                tm.add_transition(
-                    {first_chars(seq, n), seq[n]},
-                    {{first_chars(seq, n+1), seq[n]}, dir::right}
-                );
+        for (const auto n : std::views::iota(0)
+            | std::views::take(seq_len)
+            | std::views::drop(1) | std::views::reverse // Drop first (subsequence of 0)
+            | std::views::drop(1) | std::views::reverse // Drop last (subsequence = sequence)
+        ) {
+            auto next_subseq{first_chars(sequence, n+1)};
+            auto subseq{next_subseq | std::views::reverse
+                | std::views::drop(1) | std::views::reverse};
+
+            // Transition from n-subsequence to (n+1)-subsequence
+            tm.add_transition(
+                {to_string(subseq), last_symbol(next_subseq)},
+                {{to_string(next_subseq), last_symbol(next_subseq)}, dir::right}
+            );
         }
 
         tm.set_title(name);
@@ -247,7 +262,10 @@ namespace component {
     auto check_row(std::string_view name)
         -> turing_machine
     {
-        return row_expect(permutations_sequence(), name);
+        auto perm{permutations_sequence()};
+        return turing_machine::multiunion(perm | std::views::transform([&](const auto& seq) {
+            return row_expect(seq, name);
+        }), name);
     }
 
     auto check_rows(std::string_view name)
@@ -304,15 +322,28 @@ namespace component {
     auto tower_left(std::string_view name)
         -> turing_machine
     {
-        return row_expect(tower_sequence(true), name);
+        auto tower_seq{tower_sequence(true)};
+        return turing_machine::multiunion(tower_seq
+            | std::views::transform([&](const auto& seq) {
+                return row_expect(seq, name);
+            }
+        ), name);
     }
 
     auto tower_right(std::string_view name)
         -> turing_machine
     {
-        return row_expect(tower_sequence(true) | std::views::transform([](const auto& seq) {
-            return seq | std::views::reverse | std::ranges::to<std::vector<char>>();
-        }), name);
+        auto tower_seq{tower_sequence(true)};
+        return turing_machine::multiunion(tower_seq
+            // Reverse every sequence
+            | std::views::transform([](const auto& seq) {
+                return seq | std::views::reverse | std::ranges::to<std::vector<char>>();
+            })
+            // Construct corresponding expecter
+            | std::views::transform([&](const auto& seq) {
+                return row_expect(seq, name);
+            }
+        ), name);
     }
 
     auto towers_rows(std::string_view name)
@@ -357,9 +388,9 @@ namespace component {
         std::unordered_map<std::string, turing_machine> carriers;
         
         for (const auto& seq : sequences) {
-            auto expect_1{first_chars(seq, 1)};
-            auto expect_2{first_chars(seq, 2)};
-            auto expect_3{first_chars(seq, 3)};
+            auto expect_1{to_string(first_chars(seq, 1))};
+            auto expect_2{to_string(first_chars(seq, 2))};
+            auto expect_3{to_string(first_chars(seq, 3))};
 
             auto dist_iter{distances.begin()};
             carriers[expect_1] = build_carrier(expect_1, *dist_iter++);
@@ -463,9 +494,9 @@ int main(int argc, char* argv[]) {
     auto concat{turing_machine::multiconcat(
         turing_machine::list{
             // component::check_rows("check_rows"),
-            // component::check_cols("check_cols"),
-            component::towers_rows("towers_rows"),
-            component::towers_cols("towers_cols")
+            component::check_cols("check_cols"),
+            // component::towers_rows("towers_rows"),
+            // component::towers_cols("towers_cols")
         },
         component::alphabet, "solver"
     )};
