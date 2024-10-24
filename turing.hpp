@@ -47,7 +47,7 @@ public:
     template<typename R>
     requires std::ranges::forward_range<R>
         && std::convertible_to<std::ranges::range_reference_t<R>, transition_entry>
-    turing_machine(R&& transitions)
+    turing_machine(R transitions)
         : transitions{transitions | std::ranges::to<transition_table>()}
     {
     }
@@ -64,7 +64,7 @@ public:
     template<typename R>
     requires std::ranges::forward_range<R>
         && std::convertible_to<std::ranges::range_reference_t<R>, transition_entry>
-    auto add_transitions(R&& transitions) -> void
+    auto add_transitions(R transitions) -> void
     {
         this->transitions.merge(transitions | std::ranges::to<transition_table>());
     }
@@ -98,7 +98,7 @@ public:
     requires std::ranges::forward_range<R>
         && std::convertible_to<std::ranges::range_reference_t<R>, turing_machine>
     static auto multiconcat(
-        R&& tms,
+        R tms,
         const std::set<char>& alphabet,
         std::string_view title
     )
@@ -128,7 +128,7 @@ public:
     requires std::ranges::forward_range<R>
         && std::convertible_to<std::ranges::range_reference_t<R>, turing_machine>
     static auto multiunion(
-        R&& tms,
+        R tms,
         std::string_view title
     )
         -> turing_machine

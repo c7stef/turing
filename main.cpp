@@ -195,7 +195,7 @@ namespace component {
     template<typename R>
     requires std::ranges::forward_range<R>
         && std::convertible_to<std::ranges::range_reference_t<R>, std::vector<char>>
-    auto row_expect(R&& sequences, std::string_view name)
+    auto row_expect(R sequences, std::string_view name)
         -> turing_machine
     {
         turing_machine tm{};
@@ -339,7 +339,7 @@ namespace component {
     template<typename R>
     requires std::ranges::forward_range<R>
         && std::convertible_to<std::ranges::range_reference_t<R>, std::vector<char>>
-    auto col_expect(R&& sequences, std::string_view name)
+    auto col_expect(R sequences, std::string_view name)
         -> turing_machine
     {
         auto build_carrier = [](std::string expect)
@@ -416,6 +416,32 @@ namespace component {
         tm.set_title(name);
         return tm;
     }
+
+    auto towers_cols(std::string_view name)
+        -> turing_machine
+    {
+        turing_machine tm{turing_machine::multiconcat(
+            turing_machine::list{
+                find_right(':', "move_to_col1:"),
+                consume_right(':', "pass:"),
+
+                repeat(turing_machine::multiconcat(
+                    turing_machine::list{
+                        check_col("check_col"),
+                        move_left(26, "move_to_next")        
+                    },
+                    alphabet, "loop_body"
+                ), repeater::do_until, ':', "col_loop"),
+
+                find_left('_', "move_back"),
+                consume_right('_', "move_to_start")
+            },
+            alphabet, "check_cols"
+        )};
+
+        tm.set_title(name);
+        return tm;
+    }
 }
 
 int main(int argc, char* argv[]) {
@@ -426,7 +452,8 @@ int main(int argc, char* argv[]) {
         turing_machine::list{
             // component::check_rows("check_rows"),
             // component::check_cols("check_cols"),
-            component::towers_rows("towers_rows")
+            // component::towers_rows("towers_rows"),
+            component::towers_cols("towers_cols")
         },
         component::alphabet, "solver"
     )};
