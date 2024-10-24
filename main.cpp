@@ -193,9 +193,9 @@ namespace component {
     }
 
     template<typename R>
-    requires std::ranges::range<R>
-        && std::convertible_to<std::ranges::range_value_t<R>, std::vector<char>>
-    auto row_expect(R sequences, std::string_view name)
+    requires std::ranges::forward_range<R>
+        && std::convertible_to<std::ranges::range_reference_t<R>, std::vector<char>>
+    auto row_expect(R&& sequences, std::string_view name)
         -> turing_machine
     {
         turing_machine tm{};
@@ -273,22 +273,13 @@ namespace component {
         );
     }
 
-    enum class row_tower {
-        left, right
-    };
-
-    template<row_tower type>
     constexpr auto tower_sequence()
         -> std::vector<std::vector<char>>
     {
         std::vector<char> set{'1', '2', '3', '4'};
         std::vector<std::vector<char>> sequences{};
         
-        auto tower_iter{std::views::iota(1) | std::views::take(4)};
-        auto towers{type == row_tower::left ? tower_iter | std::ranges::to<std::vector<int>>()
-            : tower_iter | std::views::reverse | std::ranges::to<std::vector<int>>()};
-
-        for (const auto tower : towers) {
+        for (const auto tower : std::views::iota(1) | std::views::take(4)) {
             do {
                 char max_height{0};
                 int towers_visible{0};
@@ -299,11 +290,7 @@ namespace component {
                 char tower_symbol{static_cast<char>('0' + tower)};
 
                 if (towers_visible == tower)
-                    sequences.push_back(
-                        type == row_tower::left
-                            ? std::vector<char>{tower_symbol, ':', set[0], set[1], set[2]}
-                            : std::vector<char>{set[2], set[1], set[0], ':', tower_symbol}
-                    );
+                    sequences.push_back({tower_symbol, ':', set[0], set[1], set[2]});
             } while (std::ranges::next_permutation(set).found);
         }
 
@@ -313,13 +300,15 @@ namespace component {
     auto tower_left(std::string_view name)
         -> turing_machine
     {
-        return row_expect(tower_sequence<row_tower::left>(), name);
+        return row_expect(tower_sequence(), name);
     }
 
     auto tower_right(std::string_view name)
         -> turing_machine
     {
-        return row_expect(tower_sequence<row_tower::right>(), name);
+        return row_expect(tower_sequence() | std::views::transform([](const auto& seq) {
+            return seq | std::views::reverse | std::ranges::to<std::vector<char>>();
+        }), name);
     }
 
     auto towers_rows(std::string_view name)
@@ -348,9 +337,9 @@ namespace component {
     }
 
     template<typename R>
-    requires std::ranges::range<R>
-        && std::convertible_to<std::ranges::range_value_t<R>, std::vector<char>>
-    auto col_expect(R sequences, std::string_view name)
+    requires std::ranges::forward_range<R>
+        && std::convertible_to<std::ranges::range_reference_t<R>, std::vector<char>>
+    auto col_expect(R&& sequences, std::string_view name)
         -> turing_machine
     {
         auto build_carrier = [](std::string expect)
