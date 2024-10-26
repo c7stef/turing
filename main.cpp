@@ -450,8 +450,8 @@ int main(int argc, char* argv[]) {
 
     concat.redirect_state(concat.accept_state(), "Y", component::alphabet);
 
-    std::cout << concat;
-
-    if (argc == 2)
+    if (argc == 1)
+        std::cout << concat;
+    else
         run_input(concat, argv[1]);
 }
