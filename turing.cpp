@@ -216,7 +216,7 @@ auto turing_machine::head() const -> std::string {
     auto right_size = tape_right.size();
 
     return std::string(left_size + head_index, '_') + 'v'
-        + std::string(left_size + right_size - head_index - 1, '_')
+        + std::string(right_size - head_index - 1, '_')
         + " (" + current_state + ')';
 }
 
