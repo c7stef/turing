@@ -63,7 +63,7 @@ namespace component {
     auto _move(int amount, std::string_view name, dir direction)
         -> turing_machine
     {
-        auto transition_builder = [direction](const auto symbol)
+        auto build_transition = [direction](const auto symbol)
         {
             return [direction, symbol](const auto idx) -> turing_machine::transition_entry
             {
@@ -75,18 +75,14 @@ namespace component {
         };
 
         turing_machine tm {};
-        tm.set_initial_state("0");
+        tm.set_initial_state(std::to_string(0));
+        tm.set_accept_state(std::to_string(amount));
 
         for (const auto symbol : alphabet) {
             tm.add_transitions(
                 std::views::iota(0)
                 | std::views::take(amount)
-                | std::views::transform(transition_builder(symbol))
-            );
-
-            tm.add_transition(
-                {std::to_string(amount), symbol},
-                {{tm.accept_state(), symbol}, dir::hold}
+                | std::views::transform(build_transition(symbol))
             );
         }
         
@@ -147,9 +143,8 @@ namespace component {
         -> turing_machine
     {
         // Start with prefixed renamed version of tm
-        auto repeater{turing_machine::multiconcat(
-            turing_machine::list{tm},
-            alphabet, name)
+        auto repeater{turing_machine::concat(
+            turing_machine::list{tm}, name)
         };
 
         auto checker_state{"check"};
@@ -249,45 +244,106 @@ namespace component {
         return tm;
     }
 
-    auto consume_right(char symbol, std::string_view name)
+    auto consume(char symbol, dir direction, std::string_view name)
         -> turing_machine
     {
         turing_machine tm{};
-        tm.set_initial_state(std::string{symbol});
-        tm.add_transition({tm.initial_state(), symbol}, {{tm.accept_state(), symbol}, dir::right});
+        tm.set_initial_state("consume");
+        tm.add_transition({tm.initial_state(), symbol}, {{tm.accept_state(), symbol}, direction});
         tm.set_title(name);
         return tm;
+    }
+
+    template<std::ranges::forward_range R, std::ranges::forward_range Q>
+    requires std::convertible_to<std::ranges::range_reference_t<R>, char>
+        && std::convertible_to<std::ranges::range_reference_t<Q>, int>
+    auto expect(R sequence, Q distances, std::string_view name)
+        -> turing_machine
+    {
+        auto seq_len{std::ranges::distance(sequence)};
+
+        auto drop_last = [](const std::ranges::forward_range auto range) {
+            return range | std::views::reverse | std::views::drop(1) | std::views::reverse;
+        };
+
+        auto carrier_name = [&](const std::ranges::forward_range auto expect) {
+            return expect.size() == 1 ? "start"s : to_string(drop_last(expect));
+        };
+
+        auto nth_expect_distance = [&](const auto n) {
+            return *std::ranges::next(distances.begin(), n-2);
+        };
+
+        auto nth_expect_dir = [&](const auto n) {
+            return n == seq_len ? dir::hold : dir::right;
+        };
+
+        auto build_carrier = [&](std::string expect) {
+            auto len{std::ranges::distance(expect)};
+
+            turing_machine::list carrier_parts{
+                consume(last_symbol(expect), nth_expect_dir(len), "check"),
+            };
+
+            auto distance{nth_expect_distance(len)};
+            if (distance > 1)
+                carrier_parts.push_front(move_right(distance-1, "shift"));
+
+            return turing_machine::concat(carrier_parts, carrier_name(expect));
+        };
+
+
+        auto carrier_subseqs_lengths{
+            std::views::iota(2)
+            | std::views::take(seq_len-1)
+        };
+
+        // Map n-subsequences to carriers
+        auto carriers{
+            carrier_subseqs_lengths
+            | std::views::transform([&](const auto len) {
+                return build_carrier(to_string(first_chars(sequence, len)));
+            })
+            | std::ranges::to<turing_machine::list>()
+        };
+
+        // Map start (0-subsequence) to 1-subsequence
+        auto first_subseq{first_chars(sequence, 1)};
+        carriers.push_front(consume(last_symbol(first_subseq), nth_expect_dir(1), carrier_name(first_subseq)));
+
+        auto expecter{turing_machine::concat(carriers, name)};
+        expecter.redirect_state(expecter.accept_state(), "Y", alphabet);
+        expecter.set_accept_state("Y");
+        return expecter;
     }
 
     auto check_row(std::string_view name)
         -> turing_machine
     {
         auto perm{permutations_sequence()};
-        return turing_machine::multiunion(perm | std::views::transform([&](const auto& seq) {
-            return row_expect(seq, name);
+        return turing_machine::union_all(perm | std::views::transform([&](const auto& seq) {
+            return expect(seq, std::views::repeat(1), name);
         }), name);
     }
 
     auto check_rows(std::string_view name)
         -> turing_machine
     {
-        return turing_machine::multiconcat(
+        return turing_machine::concat(
             turing_machine::list{
                 find_right(':', "move_to_row1:"),
 
-                repeat(turing_machine::multiconcat(
+                repeat(turing_machine::concat(
                     turing_machine::list{
-                        consume_right(':', "pass:"),
+                        consume(':', dir::right, "pass:"),
                         check_row("check_row"),
                         move_right(5, "move_to_next")        
-                    },
-                    alphabet, "loop_body"
+                    }, "loop_body"
                 ), repeater::do_while, ':', "row_loop"),
 
                 find_left('_', "move_back"),
-                consume_right('_', "move_to_start")
-            },
-            alphabet, name
+                consume('_', dir::right, "move_to_start")
+            }, name
         );
     }
 
@@ -323,9 +379,9 @@ namespace component {
         -> turing_machine
     {
         auto tower_seq{tower_sequence(true)};
-        return turing_machine::multiunion(tower_seq
+        return turing_machine::union_all(tower_seq
             | std::views::transform([&](const auto& seq) {
-                return row_expect(seq, name);
+                return expect(seq, std::views::repeat(1), name);
             }
         ), name);
     }
@@ -334,14 +390,9 @@ namespace component {
         -> turing_machine
     {
         auto tower_seq{tower_sequence(true)};
-        return turing_machine::multiunion(tower_seq
-            // Reverse every sequence
-            | std::views::transform([](const auto& seq) {
-                return seq | std::views::reverse | std::ranges::to<std::vector<char>>();
-            })
-            // Construct corresponding expecter
+        return turing_machine::union_all(tower_seq
             | std::views::transform([&](const auto& seq) {
-                return row_expect(seq, name);
+                return expect(seq | std::views::reverse, std::views::repeat(1), name);
             }
         ), name);
     }
@@ -349,140 +400,95 @@ namespace component {
     auto towers_rows(std::string_view name)
         -> turing_machine
     {
-        return turing_machine::multiconcat(
+        return turing_machine::concat(
             turing_machine::list{
                 find_right(':', "move_to_tower1:"),
 
-                repeat(turing_machine::multiconcat(
+                repeat(turing_machine::concat(
                     turing_machine::list{
                         move_left(1, "pass:"),
                         tower_left("tower_left"),
                         move_left(1, "move_to_right_tower"),
                         tower_right("tower_right"),
                         move_right(3, "move_to_next"),
-                    },
-                    alphabet, "loop_body"
+                    }, "loop_body"
                 ), repeater::do_while, ':', "tower_loop"),
 
                 find_left('_', "move_back"),
-                consume_right('_', "move_to_start")
-            },
-            alphabet, name
+                consume('_', dir::right, "move_to_start")
+            }, name
         );
-    }
-
-    template<std::ranges::forward_range R, std::ranges::forward_range Q>
-    requires std::convertible_to<std::ranges::range_reference_t<R>, std::vector<char>>
-        && std::convertible_to<std::ranges::range_reference_t<Q>, int>
-    auto col_expect(R sequences, Q distances, std::string_view name)
-        -> turing_machine
-    {
-        auto build_carrier = [](std::string expect, int distance)
-        {
-            return move_right(distance, "shift").prefix(expect);
-        };
-
-        turing_machine tm{};
-        tm.set_initial_state("start");
-
-        std::unordered_map<std::string, turing_machine> carriers;
-        
-        for (const auto& seq : sequences) {
-            auto expect_1{to_string(first_chars(seq, 1))};
-            auto expect_2{to_string(first_chars(seq, 2))};
-            auto expect_3{to_string(first_chars(seq, 3))};
-
-            auto dist_iter{distances.begin()};
-            carriers[expect_1] = build_carrier(expect_1, *dist_iter++);
-            carriers[expect_2] = build_carrier(expect_2, *dist_iter++);
-            carriers[expect_3] = build_carrier(expect_3, *dist_iter++);
-
-            tm.add_transitions(turing_machine::transition_table{
-                {
-                    {tm.initial_state(), seq[0]},
-                    {{carriers.at(expect_1).initial_state(), seq[0]}, dir::hold}
-                },
-                {
-                    {carriers.at(expect_1).accept_state(), seq[1]},
-                    {{carriers.at(expect_2).initial_state(), seq[1]}, dir::hold}
-                },
-                {
-                    {carriers.at(expect_2).accept_state(), seq[2]},
-                    {{carriers.at(expect_3).initial_state(), seq[2]}, dir::hold}
-                },
-                {
-                    {carriers.at(expect_3).accept_state(), seq[3]},
-                    {{tm.accept_state(), seq[3]}, dir::hold}
-                }
-            });
-        }
-
-        auto carriers_tm{turing_machine::multiunion(carriers | std::views::values, "carriers")};
-        return turing_machine::multiunion(turing_machine::list{tm, carriers_tm}, name);
     }
 
     auto check_col(std::string_view name)
         -> turing_machine
     {
-        return col_expect(permutations_sequence(), std::views::repeat(9), name);
+        auto perm{permutations_sequence()};
+        return turing_machine::union_all(perm | std::views::transform([&](const auto& seq) {
+            return expect(seq, std::views::repeat(9), name);
+        }), name);
     }
 
     auto check_cols(std::string_view name)
         -> turing_machine
     {
-        return turing_machine::multiconcat(
+        return turing_machine::concat(
             turing_machine::list{
                 find_right(':', "move_to_col1:"),
-                consume_right(':', "pass:"),
+                consume(':', dir::right, "pass:"),
 
-                repeat(turing_machine::multiconcat(
+                repeat(turing_machine::concat(
                     turing_machine::list{
-                        check_col("tower_up"),
+                        check_col("check_col"),
                         move_left(26, "move_to_next")        
-                    },
-                    alphabet, "loop_body"
+                    }, "loop_body"
                 ), repeater::do_until, ':', "col_loop"),
 
                 find_left('_', "move_back"),
-                consume_right('_', "move_to_start")
-            },
-            alphabet, name
+                consume('_', dir::right, "move_to_start")
+            }, name
         );
     }
 
     auto tower_up(std::string_view name)
         -> turing_machine
     {
-        return col_expect(tower_sequence(false), std::vector<int>{7, 9, 9}, name);
+        auto tower_seq{tower_sequence(false)};
+        return turing_machine::union_all(tower_seq
+            | std::views::transform([&](const auto& seq) {
+                return expect(seq, std::vector{7, 9, 9}, name);
+            }
+        ), name);
     }
 
     auto tower_down(std::string_view name)
         -> turing_machine
     {
-        return col_expect(tower_sequence(false) | std::views::transform([](const auto& seq) {
-            return seq | std::views::reverse | std::ranges::to<std::vector<char>>();
-        }), std::vector<int>{9, 9, 7}, name);
+        auto tower_seq{tower_sequence(false)};
+        return turing_machine::union_all(tower_seq
+            | std::views::transform([&](const auto& seq) {
+                return expect(seq | std::views::reverse, std::vector{9, 9, 7}, name);
+            }
+        ), name);
     }
 
     auto towers_cols(std::string_view name)
         -> turing_machine
     {
-        return turing_machine::multiconcat(
+        return turing_machine::concat(
             turing_machine::list{
-                repeat(turing_machine::multiconcat(
+                repeat(turing_machine::concat(
                     turing_machine::list{
                         tower_up("tower_up"),
                         move_left(9, "move_to_down"),
                         tower_down("tower_down"),
                         move_left(40, "move_to_next")
-                    },
-                    alphabet, "loop_body"
+                    }, "loop_body"
                 ), repeater::do_until, '#', "tower_loop"),
 
                 find_left('_', "move_back"),
-                consume_right('_', "move_to_start")
-            },
-            alphabet, name
+                consume('_', dir::right, "move_to_start")
+            }, name
         );
     }
 }
@@ -491,14 +497,13 @@ int main(int argc, char* argv[]) {
     if (argc > 2)
         terminate_message("Usage: ./tms [input]");
 
-    auto concat{turing_machine::multiconcat(
+    auto concat{turing_machine::concat(
         turing_machine::list{
-            // component::check_rows("check_rows"),
+            component::check_rows("check_rows"),
             component::check_cols("check_cols"),
-            // component::towers_rows("towers_rows"),
-            // component::towers_cols("towers_cols")
-        },
-        component::alphabet, "solver"
+            component::towers_rows("towers_rows"),
+            component::towers_cols("towers_cols")
+        }, "solver"
     )};
 
     concat.redirect_state(concat.accept_state(), "Y", component::alphabet);

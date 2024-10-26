@@ -153,17 +153,6 @@ auto turing_machine::prefixed() const -> turing_machine
     return prefix(title);
 }
 
-auto turing_machine::concat(
-    const turing_machine& first,
-    const turing_machine& second,
-    const std::set<char>& alphabet,
-    std::string_view title
-)
-    -> turing_machine
-{
-    return multiconcat(list{first, second}, alphabet, title);
-}
-
 auto turing_machine::transform_states(std::function<std::string(std::string_view)> callback) const
     -> turing_machine
 {

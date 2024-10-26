@@ -83,20 +83,11 @@ public:
     auto head() const -> std::string;
     
     static auto status_message(status exec) -> std::string_view;
-
-    static auto concat(
-        const turing_machine& first,
-        const turing_machine& second,
-        const std::set<char>& alphabet,
-        std::string_view title
-    )
-        -> turing_machine;
     
     template<std::ranges::forward_range R>
     requires std::convertible_to<std::ranges::range_reference_t<R>, turing_machine>
-    static auto multiconcat(
+    static auto concat(
         R tms,
-        const std::set<char>& alphabet,
         std::string_view title
     )
         -> turing_machine
@@ -110,7 +101,10 @@ public:
             auto result{first};
             auto prefixed_second = second.prefixed();
 
-            result.redirect_state(result.accept, prefixed_second.initial, alphabet);
+            for (auto& [state, reaction] : result.transitions)
+                if (reaction.first.first == result.accept)
+                    reaction.first.first = prefixed_second.initial;
+
             result.add_transitions(prefixed_second.transitions);
             result.set_accept_state(prefixed_second.accept);
 
@@ -123,7 +117,7 @@ public:
 
     template<std::ranges::forward_range R>
     requires std::convertible_to<std::ranges::range_reference_t<R>, turing_machine>
-    static auto multiunion(
+    static auto union_all(
         R tms,
         std::string_view title
     )
