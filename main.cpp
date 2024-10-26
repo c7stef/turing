@@ -7,7 +7,6 @@
 #include <ranges>
 #include <string>
 #include <string_view>
-#include <unordered_map>
 #include <vector>
 #include "turing.hpp"
 
@@ -198,52 +197,6 @@ namespace component {
         return sequences;
     }
 
-    template<std::ranges::forward_range R>
-    requires std::convertible_to<std::ranges::range_reference_t<R>, char>
-    auto row_expect(R sequence, std::string_view name)
-        -> turing_machine
-    {
-        turing_machine tm{};
-        tm.set_initial_state("start");
-
-        auto seq_len{std::ranges::distance(sequence)};
-        auto first{last_symbol(first_chars(sequence, 1))};
-        auto last{last_symbol(sequence)};
-
-        tm.add_transitions(turing_machine::transition_table{
-            // Transition from start to subsequence of 1
-            {
-                {tm.initial_state(), first},
-                {{to_string(first_chars(sequence, 1)), first}, dir::right}
-            },
-
-            // Transition from complete subsequence to accept
-            {
-                {to_string(first_chars(sequence, seq_len-1)), last},
-                {{tm.accept_state(), last}, dir::hold}
-            }
-        });
-
-        for (const auto n : std::views::iota(0)
-            | std::views::take(seq_len)
-            | std::views::drop(1) | std::views::reverse // Drop first (subsequence of 0)
-            | std::views::drop(1) | std::views::reverse // Drop last (subsequence = sequence)
-        ) {
-            auto next_subseq{first_chars(sequence, n+1)};
-            auto subseq{next_subseq | std::views::reverse
-                | std::views::drop(1) | std::views::reverse};
-
-            // Transition from n-subsequence to (n+1)-subsequence
-            tm.add_transition(
-                {to_string(subseq), last_symbol(next_subseq)},
-                {{to_string(next_subseq), last_symbol(next_subseq)}, dir::right}
-            );
-        }
-
-        tm.set_title(name);
-        return tm;
-    }
-
     auto consume(char symbol, dir direction, std::string_view name)
         -> turing_machine
     {
@@ -274,15 +227,11 @@ namespace component {
             return *std::ranges::next(distances.begin(), n-2);
         };
 
-        auto nth_expect_dir = [&](const auto n) {
-            return n == seq_len ? dir::hold : dir::right;
-        };
-
         auto build_carrier = [&](std::string expect) {
             auto len{std::ranges::distance(expect)};
 
             turing_machine::list carrier_parts{
-                consume(last_symbol(expect), nth_expect_dir(len), "check"),
+                consume(last_symbol(expect), dir::right, "check"),
             };
 
             auto distance{nth_expect_distance(len)};
@@ -309,7 +258,7 @@ namespace component {
 
         // Map start (0-subsequence) to 1-subsequence
         auto first_subseq{first_chars(sequence, 1)};
-        carriers.push_front(consume(last_symbol(first_subseq), nth_expect_dir(1), carrier_name(first_subseq)));
+        carriers.push_front(consume(last_symbol(first_subseq), dir::right, carrier_name(first_subseq)));
 
         auto expecter{turing_machine::concat(carriers, name)};
         expecter.redirect_state(expecter.accept_state(), "Y", alphabet);
@@ -337,7 +286,7 @@ namespace component {
                     turing_machine::list{
                         consume(':', dir::right, "pass:"),
                         check_row("check_row"),
-                        move_right(5, "move_to_next")        
+                        move_right(4, "move_to_next")        
                     }, "loop_body"
                 ), repeater::do_while, ':', "row_loop"),
 
@@ -408,9 +357,9 @@ namespace component {
                     turing_machine::list{
                         move_left(1, "pass:"),
                         tower_left("tower_left"),
-                        move_left(1, "move_to_right_tower"),
+                        move_left(2, "move_to_right_tower"),
                         tower_right("tower_right"),
-                        move_right(3, "move_to_next"),
+                        move_right(2, "move_to_next"),
                     }, "loop_body"
                 ), repeater::do_while, ':', "tower_loop"),
 
@@ -440,7 +389,7 @@ namespace component {
                 repeat(turing_machine::concat(
                     turing_machine::list{
                         check_col("check_col"),
-                        move_left(26, "move_to_next")        
+                        move_left(27, "move_to_next")        
                     }, "loop_body"
                 ), repeater::do_until, ':', "col_loop"),
 
@@ -480,9 +429,9 @@ namespace component {
                 repeat(turing_machine::concat(
                     turing_machine::list{
                         tower_up("tower_up"),
-                        move_left(9, "move_to_down"),
+                        move_left(10, "move_to_down"),
                         tower_down("tower_down"),
-                        move_left(40, "move_to_next")
+                        move_left(41, "move_to_next")
                     }, "loop_body"
                 ), repeater::do_until, '#', "tower_loop"),
 
