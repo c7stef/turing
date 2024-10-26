@@ -185,18 +185,6 @@ namespace component {
         return seq | std::ranges::to<std::string>();
     };
 
-    constexpr auto permutations_sequence()
-        -> std::vector<std::vector<char>>
-    {
-        std::vector<char> set{'1', '2', '3', '4'};
-        std::vector<std::vector<char>> sequences{};
-        
-        do sequences.push_back(set);
-        while (std::ranges::next_permutation(set).found);
-
-        return sequences;
-    }
-
     auto consume(char symbol, dir direction, std::string_view name)
         -> turing_machine
     {
@@ -270,6 +258,18 @@ namespace component {
         return expecter;
     }
 
+    constexpr auto permutations_sequence()
+        -> std::vector<std::vector<char>>
+    {
+        std::vector<char> set{'1', '2', '3', '4'};
+        std::vector<std::vector<char>> sequences{};
+        
+        do sequences.push_back(set);
+        while (std::ranges::next_permutation(set).found);
+
+        return sequences;
+    }
+
     auto check_row(std::string_view name)
         -> turing_machine
     {
@@ -293,75 +293,6 @@ namespace component {
                         move_right(4, "move_to_next")        
                     }, "loop_body"
                 ), repeater::do_while, ':', "row_loop"),
-
-                find_left('_', "move_back"),
-                consume('_', dir::right, "move_to_start")
-            }, name
-        );
-    }
-
-    constexpr auto tower_sequence(bool colon)
-        -> std::vector<std::vector<char>>
-    {
-        std::vector<char> set{'1', '2', '3', '4'};
-        std::vector<std::vector<char>> sequences{};
-        
-        for (const auto tower : std::views::iota(1) | std::views::take(4)) {
-            do {
-                char max_height{0};
-                int towers_visible{0};
-                for (const auto height : set)
-                    if (height > max_height)
-                        max_height = height, towers_visible++;
-                
-                char tower_symbol{static_cast<char>('0' + tower)};
-
-                if (towers_visible == tower) {
-                    if (colon)
-                        sequences.push_back({tower_symbol, ':', set[0], set[1], set[2]});
-                    else
-                        sequences.push_back({tower_symbol, set[0], set[1], set[2]});
-                }
-            } while (std::ranges::next_permutation(set).found);
-        }
-
-        return sequences;
-    }
-
-    enum class row_tower {
-        left,
-        right
-    };
-
-    auto tower_row(row_tower tower, std::string_view name)
-        -> turing_machine
-    {
-        auto tower_seq{tower_sequence(true)};
-        auto expect_dir{tower == row_tower::left ? dir::right : dir::left};
-
-        return turing_machine::union_all(tower_seq
-            | std::views::transform([&](const auto& seq) {
-                return expect(seq, expect_dir, std::views::repeat(1), name);
-            }
-        ), name);
-    }
-
-    auto towers_rows(std::string_view name)
-        -> turing_machine
-    {
-        return turing_machine::concat(
-            turing_machine::list{
-                find_right(':', "move_to_tower1:"),
-
-                repeat(turing_machine::concat(
-                    turing_machine::list{
-                        move_left(1, "pass:"),
-                        tower_row(row_tower::left, "tower_left"),
-                        move_right(2, "move_to_right_tower"),
-                        tower_row(row_tower::right, "tower_right"),
-                        move_right(8, "move_to_next"),
-                    }, "loop_body"
-                ), repeater::do_while, ':', "tower_loop"),
 
                 find_left('_', "move_back"),
                 consume('_', dir::right, "move_to_start")
@@ -399,6 +330,72 @@ namespace component {
         );
     }
 
+    constexpr auto tower_sequence()
+        -> std::vector<std::vector<char>>
+    {
+        std::vector<char> set{'1', '2', '3', '4'};
+        std::vector<std::vector<char>> sequences{};
+        
+        for (const auto tower : std::views::iota(1) | std::views::take(4)) {
+            do {
+                char max_height{0};
+                int towers_visible{0};
+                for (const auto height : set)
+                    if (height > max_height)
+                        max_height = height, towers_visible++;
+                
+                char tower_symbol{static_cast<char>('0' + tower)};
+
+                if (towers_visible == tower) {
+                    sequences.push_back({tower_symbol, set[0], set[1], set[2]});
+                }
+            } while (std::ranges::next_permutation(set).found);
+        }
+
+        return sequences;
+    }
+
+    enum class row_tower {
+        left,
+        right
+    };
+
+    auto tower_row(row_tower tower, std::string_view name)
+        -> turing_machine
+    {
+        auto tower_seq{tower_sequence()};
+        auto expect_dir{tower == row_tower::left ? dir::right : dir::left};
+
+        return turing_machine::union_all(tower_seq
+            | std::views::transform([&](const auto& seq) {
+                return expect(seq, expect_dir, std::vector{2, 1, 1}, name);
+            }
+        ), name);
+    }
+
+    auto towers_rows(std::string_view name)
+        -> turing_machine
+    {
+        return turing_machine::concat(
+            turing_machine::list{
+                find_right(':', "move_to_tower1:"),
+
+                repeat(turing_machine::concat(
+                    turing_machine::list{
+                        move_left(1, "pass:"),
+                        tower_row(row_tower::left, "tower_left"),
+                        move_right(2, "move_to_right_tower"),
+                        tower_row(row_tower::right, "tower_right"),
+                        move_right(8, "move_to_next"),
+                    }, "loop_body"
+                ), repeater::do_while, ':', "tower_loop"),
+
+                find_left('_', "move_back"),
+                consume('_', dir::right, "move_to_start")
+            }, name
+        );
+    }
+
     enum class col_tower {
         down,
         up
@@ -407,7 +404,7 @@ namespace component {
     auto tower_col(col_tower tower, std::string_view name)
         -> turing_machine
     {
-        auto tower_seq{tower_sequence(false)};
+        auto tower_seq{tower_sequence()};
         auto expect_dir{tower == col_tower::up ? dir::right : dir::left};
 
         return turing_machine::union_all(tower_seq
