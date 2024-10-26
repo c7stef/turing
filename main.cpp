@@ -210,33 +210,37 @@ namespace component {
     template<std::ranges::forward_range R, std::ranges::forward_range Q>
     requires std::convertible_to<std::ranges::range_reference_t<R>, char>
         && std::convertible_to<std::ranges::range_reference_t<Q>, int>
-    auto expect(R sequence, Q distances, std::string_view name)
+    auto expect(R sequence, dir direction, Q distances, std::string_view name)
         -> turing_machine
     {
         auto seq_len{std::ranges::distance(sequence)};
 
-        auto drop_last = [](const std::ranges::forward_range auto range) {
+        auto drop_last = [](const std::ranges::forward_range auto range)
+        {
             return range | std::views::reverse | std::views::drop(1) | std::views::reverse;
         };
 
-        auto carrier_name = [&](const std::ranges::forward_range auto expect) {
+        auto carrier_name = [&](const std::ranges::forward_range auto expect)
+        {
             return expect.size() == 1 ? "start"s : to_string(drop_last(expect));
         };
 
-        auto nth_expect_distance = [&](const auto n) {
+        auto nth_expect_distance = [&](const auto n)
+        {
             return *std::ranges::next(distances.begin(), n-2);
         };
 
-        auto build_carrier = [&](std::string expect) {
+        auto build_carrier = [&](std::string expect)
+        {
             auto len{std::ranges::distance(expect)};
 
             turing_machine::list carrier_parts{
-                consume(last_symbol(expect), dir::right, "check"),
+                consume(last_symbol(expect), direction, "check"),
             };
 
             auto distance{nth_expect_distance(len)};
             if (distance > 1)
-                carrier_parts.push_front(move_right(distance-1, "shift"));
+                carrier_parts.push_front(_move(distance-1, "shift", direction));
 
             return turing_machine::concat(carrier_parts, carrier_name(expect));
         };
@@ -258,7 +262,7 @@ namespace component {
 
         // Map start (0-subsequence) to 1-subsequence
         auto first_subseq{first_chars(sequence, 1)};
-        carriers.push_front(consume(last_symbol(first_subseq), dir::right, carrier_name(first_subseq)));
+        carriers.push_front(consume(last_symbol(first_subseq), direction, carrier_name(first_subseq)));
 
         auto expecter{turing_machine::concat(carriers, name)};
         expecter.redirect_state(expecter.accept_state(), "Y", alphabet);
@@ -271,7 +275,7 @@ namespace component {
     {
         auto perm{permutations_sequence()};
         return turing_machine::union_all(perm | std::views::transform([&](const auto& seq) {
-            return expect(seq, std::views::repeat(1), name);
+            return expect(seq, dir::right, std::views::repeat(1), name);
         }), name);
     }
 
@@ -324,24 +328,20 @@ namespace component {
         return sequences;
     }
 
-    auto tower_left(std::string_view name)
-        -> turing_machine
-    {
-        auto tower_seq{tower_sequence(true)};
-        return turing_machine::union_all(tower_seq
-            | std::views::transform([&](const auto& seq) {
-                return expect(seq, std::views::repeat(1), name);
-            }
-        ), name);
-    }
+    enum class row_tower {
+        left,
+        right
+    };
 
-    auto tower_right(std::string_view name)
+    auto tower_row(row_tower tower, std::string_view name)
         -> turing_machine
     {
         auto tower_seq{tower_sequence(true)};
+        auto expect_dir{tower == row_tower::left ? dir::right : dir::left};
+
         return turing_machine::union_all(tower_seq
             | std::views::transform([&](const auto& seq) {
-                return expect(seq | std::views::reverse, std::views::repeat(1), name);
+                return expect(seq, expect_dir, std::views::repeat(1), name);
             }
         ), name);
     }
@@ -356,10 +356,10 @@ namespace component {
                 repeat(turing_machine::concat(
                     turing_machine::list{
                         move_left(1, "pass:"),
-                        tower_left("tower_left"),
-                        move_left(2, "move_to_right_tower"),
-                        tower_right("tower_right"),
-                        move_right(2, "move_to_next"),
+                        tower_row(row_tower::left, "tower_left"),
+                        move_right(2, "move_to_right_tower"),
+                        tower_row(row_tower::right, "tower_right"),
+                        move_right(8, "move_to_next"),
                     }, "loop_body"
                 ), repeater::do_while, ':', "tower_loop"),
 
@@ -374,7 +374,7 @@ namespace component {
     {
         auto perm{permutations_sequence()};
         return turing_machine::union_all(perm | std::views::transform([&](const auto& seq) {
-            return expect(seq, std::views::repeat(9), name);
+            return expect(seq, dir::right, std::views::repeat(9), name);
         }), name);
     }
 
@@ -399,24 +399,20 @@ namespace component {
         );
     }
 
-    auto tower_up(std::string_view name)
-        -> turing_machine
-    {
-        auto tower_seq{tower_sequence(false)};
-        return turing_machine::union_all(tower_seq
-            | std::views::transform([&](const auto& seq) {
-                return expect(seq, std::vector{7, 9, 9}, name);
-            }
-        ), name);
-    }
+    enum class col_tower {
+        down,
+        up
+    };
 
-    auto tower_down(std::string_view name)
+    auto tower_col(col_tower tower, std::string_view name)
         -> turing_machine
     {
         auto tower_seq{tower_sequence(false)};
+        auto expect_dir{tower == col_tower::up ? dir::right : dir::left};
+
         return turing_machine::union_all(tower_seq
             | std::views::transform([&](const auto& seq) {
-                return expect(seq | std::views::reverse, std::vector{9, 9, 7}, name);
+                return expect(seq, expect_dir, std::vector{7, 9, 9}, name);
             }
         ), name);
     }
@@ -428,10 +424,10 @@ namespace component {
             turing_machine::list{
                 repeat(turing_machine::concat(
                     turing_machine::list{
-                        tower_up("tower_up"),
-                        move_left(10, "move_to_down"),
-                        tower_down("tower_down"),
-                        move_left(41, "move_to_next")
+                        tower_col(col_tower::up, "tower_up"),
+                        move_right(15, "move_to_down"),
+                        tower_col(col_tower::down, "tower_down"),
+                        move_left(14, "move_to_next")
                     }, "loop_body"
                 ), repeater::do_until, '#', "tower_loop"),
 
