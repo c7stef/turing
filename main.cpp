@@ -439,7 +439,7 @@ int main(int argc, char* argv[]) {
     if (argc > 2)
         terminate_message("Usage: ./tms [input]");
 
-    auto concat{turing_machine::concat(
+    auto tm_final{turing_machine::concat(
         turing_machine::list{
             component::check_rows("check_rows"),
             component::check_cols("check_cols"),
@@ -448,10 +448,10 @@ int main(int argc, char* argv[]) {
         }, "solver"
     )};
 
-    concat.redirect_state(concat.accept_state(), "Y", component::alphabet);
+    tm_final.redirect_state(tm_final.accept_state(), "Y", component::alphabet);
 
     if (argc == 1)
-        std::cout << concat;
+        std::cout << tm_final;
     else
-        run_input(concat, argv[1]);
+        run_input(tm_final, argv[1]);
 }
