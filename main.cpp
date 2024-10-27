@@ -357,7 +357,7 @@ namespace component {
             int towers_visible{0};
 
             for (const auto height : set | std::views::drop(1))
-                if (height >= max_height)
+                if (height > max_height)
                     max_height = height, towers_visible++;
             
             if (towers_visible == tower) {
