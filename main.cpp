@@ -333,25 +333,38 @@ namespace component {
     constexpr auto tower_sequence()
         -> std::vector<std::vector<char>>
     {
-        std::vector<char> set{'1', '2', '3', '4'};
+        auto next_sequence = [](std::vector<char>& seq)
+        {
+            auto found{false};
+            for (auto& symbol : seq | std::views::reverse) {
+                if (symbol++ == '4')
+                    symbol = '1';
+                else {
+                    found = true;
+                    break;
+                }
+            }
+
+            return found;
+        };
+
+        std::vector<char> set(5, '1');
         std::vector<std::vector<char>> sequences{};
         
-        for (const auto tower : std::views::iota(1) | std::views::take(4)) {
-            do {
-                char max_height{0};
-                int towers_visible{0};
-                for (const auto height : set)
-                    if (height > max_height)
-                        max_height = height, towers_visible++;
-                
-                char tower_symbol{static_cast<char>('0' + tower)};
+        do {
+            auto tower{set[0] - '0'};
+            char max_height{0};
+            int towers_visible{0};
 
-                if (towers_visible == tower) {
-                    sequences.push_back({tower_symbol, set[0], set[1], set[2]});
-                }
-            } while (std::ranges::next_permutation(set).found);
-        }
-
+            for (const auto height : set | std::views::drop(1))
+                if (height >= max_height)
+                    max_height = height, towers_visible++;
+            
+            if (towers_visible == tower) {
+                sequences.push_back(set);
+            }
+        } while (next_sequence(set));
+        
         return sequences;
     }
 
@@ -384,9 +397,9 @@ namespace component {
                     turing_machine::list{
                         move_left(1, "pass:"),
                         tower_row(row_tower::left, "tower_left"),
-                        move_right(2, "move_to_right_tower"),
+                        move_right(1, "move_to_right_tower"),
                         tower_row(row_tower::right, "tower_right"),
-                        move_right(8, "move_to_next"),
+                        move_right(9, "move_to_next"),
                     }, "loop_body"
                 ), repeater::do_while, ':', "tower_loop"),
 
@@ -409,7 +422,7 @@ namespace component {
 
         return turing_machine::union_all(tower_seq
             | std::views::transform([&](const auto& seq) {
-                return expect(seq, expect_dir, std::vector{7, 9, 9}, name);
+                return expect(seq, expect_dir, std::vector{7, 9, 9, 9}, name);
             }
         ), name);
     }
@@ -422,9 +435,9 @@ namespace component {
                 repeat(turing_machine::concat(
                     turing_machine::list{
                         tower_col(col_tower::up, "tower_up"),
-                        move_right(15, "move_to_down"),
+                        move_right(6, "move_to_down"),
                         tower_col(col_tower::down, "tower_down"),
-                        move_left(14, "move_to_next")
+                        move_left(5, "move_to_next")
                     }, "loop_body"
                 ), repeater::do_until, '#', "tower_loop"),
 
@@ -441,8 +454,8 @@ int main(int argc, char* argv[]) {
 
     auto tm_final{turing_machine::concat(
         turing_machine::list{
-            component::check_rows("check_rows"),
-            component::check_cols("check_cols"),
+            // component::check_rows("check_rows"),
+            // component::check_cols("check_cols"),
             component::towers_rows("towers_rows"),
             component::towers_cols("towers_cols")
         }, "solver"
